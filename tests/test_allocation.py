@@ -34,9 +34,7 @@ def test_distribution_concentrates_shares_in_the_richest_account() -> None:
         ),
     ]
 
-    purchases = determine_buy_shares(
-        {"TARGET": Decimal("300")}, {"TARGET": Decimal("0")}, market
-    )
+    purchases = determine_buy_shares({"TARGET": Decimal("300")}, {"TARGET": Decimal("0")}, market)
     distribute_shares(purchases, accounts, market)
 
     assert accounts[0].holdings == {"TARGET": Decimal("3")}

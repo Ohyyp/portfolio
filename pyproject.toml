@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=77"]
+requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -10,8 +10,8 @@ readme = "README.md"
 license = "GPL-3.0-or-later"
 requires-python = ">=3.14"
 dependencies = [
-    "pydantic>=2.13.4",
-    "yfinance>=1.4.1",
+    "pydantic",
+    "yfinance",
 ]
 
 [project.scripts]
@@ -19,9 +19,12 @@ portfolio-allocator = "portfolio_allocator:main"
 
 [dependency-groups]
 dev = [
-    "pytest>=9.1.1",
-    "ruff>=0.16.5",
+    "pytest",
+    "ruff==0.16.4",
 ]
+
+[tool.uv]
+required-version = "==0.12.6"
 
 [tool.pytest.ini_options]
 addopts = ["--strict-config", "--strict-markers"]
@@ -38,7 +41,7 @@ py-modules = [
 ]
 
 [tool.ruff]
-line-length = 88
+line-length = 300
 target-version = "py314"
 
 [tool.ruff.lint]

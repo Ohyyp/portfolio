@@ -29,9 +29,7 @@ def escape_markdown(value: str) -> str:
     return " ".join(value.replace("|", "\\|").split())
 
 
-def partition_holdings(
-    state: AccountState, market_data: Mapping[str, MarketQuote]
-) -> tuple[dict[str, Decimal], dict[str, Decimal]]:
+def partition_holdings(state: AccountState, market_data: Mapping[str, MarketQuote]) -> tuple[dict[str, Decimal], dict[str, Decimal]]:
     etfs: dict[str, Decimal] = {}
     equities: dict[str, Decimal] = {}
     for ticker, shares in state.holdings.items():
@@ -49,15 +47,9 @@ def format_shares(shares: Decimal) -> str:
     return f"{shares:.5f}"
 
 
-def account_value(
-    state: AccountState, market_data: Mapping[str, MarketQuote]
-) -> Decimal:
+def account_value(state: AccountState, market_data: Mapping[str, MarketQuote]) -> Decimal:
     return sum(
-        (
-            shares * market_data[ticker].price
-            for ticker, shares in state.holdings.items()
-            if shares > ZERO
-        ),
+        (shares * market_data[ticker].price for ticker, shares in state.holdings.items() if shares > ZERO),
         ZERO,
     )
 
@@ -101,58 +93,29 @@ def print_section(
     if not assets:
         return
 
-    valued_assets = [
-        (ticker, shares, shares * market_data[ticker].price)
-        for ticker, shares in assets.items()
-    ]
+    valued_assets = [(ticker, shares, shares * market_data[ticker].price) for ticker, shares in assets.items()]
     section_value = sum((value for _, _, value in valued_assets), ZERO)
 
     print(f"\n### {title}\n")
-    print(
-        f"**Section value:** {format_money(section_value)} · "
-        f"**Account:** {format_percentage(percentage(section_value, account_total))} · "
-        "**Portfolio:** "
-        f"{format_percentage(percentage(section_value, portfolio_total))}\n"
-    )
+    print(f"**Section value:** {format_money(section_value)} · **Account:** {format_percentage(percentage(section_value, account_total))} · **Portfolio:** {format_percentage(percentage(section_value, portfolio_total))}\n")
 
     if title == "ETFs":
-        print(
-            "| Ticker | Name | Price | Shares | Value | Expense Ratio | "
-            "Category | Account | Portfolio |"
-        )
+        print("| Ticker | Name | Price | Shares | Value | Expense Ratio | Category | Account | Portfolio |")
         print("| :--- | :--- | ---: | ---: | ---: | ---: | :--- | ---: | ---: |")
     else:
-        print(
-            "| Ticker | Name | Price | Shares | Value | Market Cap | "
-            "1Y Change | Account | Portfolio |"
-        )
+        print("| Ticker | Name | Price | Shares | Value | Market Cap | 1Y Change | Account | Portfolio |")
         print("| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
 
-    for ticker, shares, value in sorted(
-        valued_assets, key=lambda item: item[2], reverse=True
-    ):
+    for ticker, shares, value in sorted(valued_assets, key=lambda item: item[2], reverse=True):
         quote = market_data[ticker]
-        common = (
-            f"| {ticker} | {format_name(ticker, quote)} | "
-            f"{format_money(quote.price)} | "
-            f"{format_shares(shares)} | {format_money(value)} |"
-        )
+        common = f"| {ticker} | {format_name(ticker, quote)} | {format_money(quote.price)} | {format_shares(shares)} | {format_money(value)} |"
         account_percentage = format_percentage(percentage(value, account_total))
         portfolio_percentage = format_percentage(percentage(value, portfolio_total))
         if title == "ETFs":
-            category = (
-                escape_markdown(quote.category) if quote.category else MISSING_VALUE
-            )
-            print(
-                f"{common} {format_ratio(quote.expense_ratio)} | {category} | "
-                f"{account_percentage} | {portfolio_percentage} |"
-            )
+            category = escape_markdown(quote.category) if quote.category else MISSING_VALUE
+            print(f"{common} {format_ratio(quote.expense_ratio)} | {category} | {account_percentage} | {portfolio_percentage} |")
         else:
-            print(
-                f"{common} {format_market_cap(quote.market_cap)} | "
-                f"{format_ratio(quote.year_change)} | {account_percentage} | "
-                f"{portfolio_percentage} |"
-            )
+            print(f"{common} {format_market_cap(quote.market_cap)} | {format_ratio(quote.year_change)} | {account_percentage} | {portfolio_percentage} |")
 
 
 def print_report(

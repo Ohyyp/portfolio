@@ -36,9 +36,7 @@ def parse_price(ticker: str, value: object) -> Decimal:
     try:
         price = Decimal(str(value))
     except (InvalidOperation, ValueError) as error:
-        raise MarketDataError(
-            f"{ticker} returned an invalid price: {value!r}"
-        ) from error
+        raise MarketDataError(f"{ticker} returned an invalid price: {value!r}") from error
     if not price.is_finite() or price <= ZERO:
         raise MarketDataError(f"{ticker} returned a non-positive price: {value!r}")
     return price
@@ -59,23 +57,17 @@ def parse_text(value: object) -> str | None:
 def fetch_name(instrument: yf.Ticker) -> str | None:
     try:
         metadata = instrument.history_metadata
-        return parse_text(metadata.get("longName")) or parse_text(
-            metadata.get("shortName")
-        )
+        return parse_text(metadata.get("longName")) or parse_text(metadata.get("shortName"))
     except Exception:
         return None
 
 
-def fetch_etf_details(
-    instrument: yf.Ticker, ticker: str
-) -> tuple[Decimal | None, str | None]:
+def fetch_etf_details(instrument: yf.Ticker, ticker: str) -> tuple[Decimal | None, str | None]:
     try:
         fund_data = instrument.funds_data
         category = parse_text(fund_data.fund_overview.get("categoryName"))
         operations = fund_data.fund_operations
-        expense_ratio = parse_optional_decimal(
-            operations.at["Annual Report Expense Ratio", ticker]
-        )
+        expense_ratio = parse_optional_decimal(operations.at["Annual Report Expense Ratio", ticker])
     except Exception:
         return None, None
     if expense_ratio is not None and expense_ratio < ZERO:
@@ -110,11 +102,7 @@ def fetch_ticker_quote(ticker: str) -> tuple[MarketQuote, str | None]:
     warning = None
     try:
         raw_quote_type = fast_info.get("quoteType")
-        quote_type = (
-            raw_quote_type.strip().upper()
-            if isinstance(raw_quote_type, str) and raw_quote_type.strip()
-            else None
-        )
+        quote_type = raw_quote_type.strip().upper() if isinstance(raw_quote_type, str) and raw_quote_type.strip() else None
     except Exception as error:
         quote_type = None
         warning = f"{ticker} quote type request failed: {error}; treating as stock."
@@ -153,9 +141,7 @@ def fetch_ticker_result(ticker: str) -> tuple[MarketQuote | None, str | None]:
         return None, str(error)
 
 
-def fetch_market_data(
-    tickers: set[str], max_workers: int = MAX_FETCH_WORKERS
-) -> dict[str, MarketQuote]:
+def fetch_market_data(tickers: set[str], max_workers: int = MAX_FETCH_WORKERS) -> dict[str, MarketQuote]:
     symbols = sorted(tickers)
     if not symbols:
         return {}
@@ -178,8 +164,6 @@ def fetch_market_data(
                 print(f"Warning: {message}", file=sys.stderr)
 
     if errors:
-        raise MarketDataError(
-            f"Unable to fetch required market prices: {'; '.join(errors)}"
-        )
+        raise MarketDataError(f"Unable to fetch required market prices: {'; '.join(errors)}")
 
     return results

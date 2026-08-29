@@ -21,19 +21,11 @@ from reporting import print_report
 
 def run(config: Config) -> None:
     market_data = fetch_market_data(get_all_tickers(config))
-    invalid_core = sorted(
-        ticker
-        for ticker, percentage in config.core.items()
-        if percentage > 0 and not market_data[ticker].is_etf
-    )
+    invalid_core = sorted(ticker for ticker, percentage in config.core.items() if percentage > 0 and not market_data[ticker].is_etf)
     if invalid_core:
         symbols = ", ".join(invalid_core)
         raise ConfigError(f"Core assets must be ETFs: {symbols}")
-    account_states = [
-        AccountState(account_name, broker_name, account, market_data)
-        for broker_name, accounts in config.broker.items()
-        for account_name, account in accounts.items()
-    ]
+    account_states = [AccountState(account_name, broker_name, account, market_data) for broker_name, accounts in config.broker.items() for account_name, account in accounts.items()]
     total_money = sum((state.money for state in account_states), ZERO)
     if total_money <= ZERO:
         raise ConfigError("Total portfolio money must be greater than zero")

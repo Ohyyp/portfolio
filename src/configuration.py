@@ -60,9 +60,7 @@ class AccountConfig(StrictModel):
 
     @field_validator("fixed_assets")
     @classmethod
-    def normalize_fixed_assets(
-        cls, assets: dict[str, NonNegativeDecimal]
-    ) -> dict[str, NonNegativeDecimal]:
+    def normalize_fixed_assets(cls, assets: dict[str, NonNegativeDecimal]) -> dict[str, NonNegativeDecimal]:
         return normalize_ticker_mapping(assets)
 
 
@@ -73,9 +71,7 @@ class Config(StrictModel):
 
     @field_validator("satellite")
     @classmethod
-    def normalize_satellite(
-        cls, satellite: dict[str, Percentage]
-    ) -> dict[str, Percentage]:
+    def normalize_satellite(cls, satellite: dict[str, Percentage]) -> dict[str, Percentage]:
         if not satellite:
             raise ValueError("satellite cannot be empty")
         return normalize_ticker_mapping(satellite)
@@ -89,9 +85,7 @@ class Config(StrictModel):
 
     @field_validator("broker")
     @classmethod
-    def validate_brokers(
-        cls, brokers: dict[str, dict[str, AccountConfig]]
-    ) -> dict[str, dict[str, AccountConfig]]:
+    def validate_brokers(cls, brokers: dict[str, dict[str, AccountConfig]]) -> dict[str, dict[str, AccountConfig]]:
         if not brokers:
             raise ValueError("broker cannot be empty")
         for broker_name, accounts in brokers.items():
@@ -108,9 +102,7 @@ class Config(StrictModel):
     def validate_percentages(self) -> Self:
         satellite_total = sum(self.satellite.values())
         if satellite_total > PERCENT_MAX:
-            raise ValueError(
-                f"satellite total cannot exceed 100%, got {satellite_total}%"
-            )
+            raise ValueError(f"satellite total cannot exceed 100%, got {satellite_total}%")
         core_total = sum(self.core.values())
         if core_total != PERCENT_MAX:
             raise ValueError(f"core total must equal 100%, got {core_total}%")
@@ -122,19 +114,11 @@ class Config(StrictModel):
 
 
 def get_all_tickers(config: Config) -> set[str]:
-    tickers = {
-        ticker for ticker, percentage in config.satellite.items() if percentage > 0
-    }
-    tickers.update(
-        ticker for ticker, percentage in config.core.items() if percentage > 0
-    )
+    tickers = {ticker for ticker, percentage in config.satellite.items() if percentage > 0}
+    tickers.update(ticker for ticker, percentage in config.core.items() if percentage > 0)
     for accounts in config.broker.values():
         for account in accounts.values():
-            tickers.update(
-                ticker
-                for ticker, shares in account.fixed_assets.items()
-                if shares > ZERO
-            )
+            tickers.update(ticker for ticker, shares in account.fixed_assets.items() if shares > ZERO)
     return tickers
 
 

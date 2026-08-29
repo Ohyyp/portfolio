@@ -65,9 +65,7 @@ def test_run_requires_core_assets_to_be_etfs(monkeypatch) -> None:
         "TARGET": quote("100"),
         "UNKNOWN": quote("50", quote_type="UNKNOWN"),
     }
-    monkeypatch.setattr(
-        portfolio_allocator, "fetch_market_data", lambda tickers: market
-    )
+    monkeypatch.setattr(portfolio_allocator, "fetch_market_data", lambda tickers: market)
 
     with pytest.raises(ConfigError, match="Core assets must be ETFs: UNKNOWN"):
         portfolio_allocator.run(config)
@@ -88,9 +86,7 @@ def test_run_uses_config_account_order_for_risk_priority(monkeypatch, capsys) ->
         "CORE": quote("100", "ETF"),
         "STOCK": quote("100"),
     }
-    monkeypatch.setattr(
-        portfolio_allocator, "fetch_market_data", lambda tickers: market
-    )
+    monkeypatch.setattr(portfolio_allocator, "fetch_market_data", lambda tickers: market)
 
     portfolio_allocator.run(config)
 

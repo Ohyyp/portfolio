@@ -37,16 +37,9 @@ class AccountState:
         self.name = name
         self.broker = broker
         self.config = config
-        self.holdings = {
-            ticker: truncate_shares(shares)
-            for ticker, shares in config.fixed_assets.items()
-        }
+        self.holdings = {ticker: truncate_shares(shares) for ticker, shares in config.fixed_assets.items()}
 
-        fixed_value = sum(
-            shares * market_data[ticker].price
-            for ticker, shares in self.holdings.items()
-            if shares > ZERO
-        )
+        fixed_value = sum(shares * market_data[ticker].price for ticker, shares in self.holdings.items() if shares > ZERO)
         self.base_money = config.money if config.money is not None else fixed_value
         leverage_ratio = Decimal(config.leverage_rate) / HUNDRED
         self.money = self.base_money * (ONE + leverage_ratio)
@@ -61,10 +54,7 @@ class AccountState:
 
 
 def calculate_target_values(config: Config, total_money: Decimal) -> dict[str, Decimal]:
-    return {
-        ticker: total_money * percentage / HUNDRED
-        for ticker, percentage in config.satellite.items()
-    }
+    return {ticker: total_money * percentage / HUNDRED for ticker, percentage in config.satellite.items()}
 
 
 def compute_fixed_values(

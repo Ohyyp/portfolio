@@ -36,9 +36,7 @@ def test_fetch_market_data_classifies_only_etfs(monkeypatch, capsys) -> None:
     assert "MYSTERY has an unknown quote type" in capsys.readouterr().err
 
 
-def test_quote_type_failure_keeps_price_and_falls_back_to_stock(
-    monkeypatch, capsys
-) -> None:
+def test_quote_type_failure_keeps_price_and_falls_back_to_stock(monkeypatch, capsys) -> None:
     class FailingQuoteTypeInfo:
         def get(self, key: str):
             if key == "lastPrice":
