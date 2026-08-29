@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "portfolio-allocator"
+version = "0.1.0"
+description = "CLI for target-based allocation across brokerage accounts"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+requires-python = ">=3.14"
+dependencies = [
+    "pydantic>=2.13.4",
+    "yfinance>=1.4.1",
+]
+
+[project.scripts]
+portfolio-allocator = "portfolio_allocator:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.16.5",
+]
+
+[tool.pytest.ini_options]
+addopts = ["--strict-config", "--strict-markers"]
+testpaths = ["tests"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+py-modules = [
+    "allocation",
+    "configuration",
+    "market_data",
+    "portfolio_allocator",
+    "reporting",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "PERF", "RUF", "SIM", "UP"]
