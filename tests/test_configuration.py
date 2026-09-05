@@ -21,6 +21,7 @@ def test_config_normalizes_tickers_and_collects_required_symbols() -> None:
             }
         },
         satellite={" target ": 75, "zero_target": 0},
+        substitutions={" old_core ": " core "},
     )
 
     assert config.core == {
@@ -31,6 +32,9 @@ def test_config_normalizes_tickers_and_collects_required_symbols() -> None:
         "TARGET": 75,
         "ZERO_TARGET": 0,
     }
+    assert list(config.core) == ["CORE", "ZERO_CORE"]
+    assert list(config.satellite) == ["TARGET", "ZERO_TARGET"]
+    assert config.substitutions == {"OLD_CORE": "CORE"}
     assert get_all_tickers(config) == {"TARGET", "HELD", "CORE"}
 
 
@@ -42,6 +46,9 @@ def test_config_normalizes_tickers_and_collects_required_symbols() -> None:
         ({"core": {"A": 100}}, "must be distinct"),
         ({"core": {"CORE": 100.0}}, "valid integer"),
         ({"satellite": {"A": 50.0}}, "valid integer"),
+        ({"substitutions": {"OLD": "MISSING"}}, "must be configured allocation tickers"),
+        ({"substitutions": {"CORE": "CORE"}}, "cannot also be allocation targets"),
+        ({"substitutions": {" old ": "CORE", "OLD": "CORE"}}, "duplicate ticker"),
         ({"allocation": {"A": 50}}, "Extra inputs are not permitted"),
         ({"asset_types": {}}, "Extra inputs are not permitted"),
         (
@@ -82,3 +89,29 @@ def test_config_rejects_invalid_input(overrides, message: str) -> None:
 def test_config_requires_integer_leverage_percent_below_100(leverage_rate) -> None:
     with pytest.raises(ValidationError):
         AccountConfig(money=100, leverage_rate=leverage_rate)
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"money": Decimal("Infinity")},
+        {"fixed_assets": {"ASSET": Decimal("Infinity")}},
+    ],
+)
+def test_account_money_and_shares_must_be_finite(data) -> None:
+    with pytest.raises(ValidationError):
+        AccountConfig.model_validate(data)
+
+
+def test_config_allows_leverage_in_only_one_account() -> None:
+    with pytest.raises(ValidationError, match="at most one account"):
+        Config(
+            core={"CORE": 100},
+            broker={
+                "test_broker": {
+                    "first": {"money": 100, "leverage_rate": 1},
+                    "second": {"money": 100, "leverage_rate": 2},
+                }
+            },
+            satellite={"TARGET": 50},
+        )

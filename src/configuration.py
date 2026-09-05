@@ -18,12 +18,11 @@ from pydantic import (
 )
 
 ZERO = Decimal("0")
-ONE = Decimal("1")
 HUNDRED = Decimal("100")
 PERCENT_MAX = 100
 SNAKE_CASE = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+)*$")
 
-NonNegativeDecimal = Annotated[Decimal, Field(ge=ZERO)]
+NonNegativeDecimal = Annotated[Decimal, Field(ge=ZERO, allow_inf_nan=False)]
 Percentage = Annotated[int, Field(strict=True, ge=0, le=PERCENT_MAX)]
 LeveragePercentage = Annotated[int, Field(strict=True, ge=0, lt=PERCENT_MAX)]
 
@@ -68,6 +67,7 @@ class Config(StrictModel):
     broker: dict[str, dict[str, AccountConfig]]
     core: dict[str, Percentage]
     satellite: dict[str, Percentage]
+    substitutions: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("satellite")
     @classmethod
@@ -82,6 +82,17 @@ class Config(StrictModel):
         if not core:
             raise ValueError("core cannot be empty")
         return normalize_ticker_mapping(core)
+
+    @field_validator("substitutions")
+    @classmethod
+    def normalize_substitutions(cls, substitutions: dict[str, str]) -> dict[str, str]:
+        normalized: dict[str, str] = {}
+        for substitute, target in substitutions.items():
+            symbol = normalize_ticker(substitute)
+            if symbol in normalized:
+                raise ValueError(f"duplicate ticker after normalization: {symbol}")
+            normalized[symbol] = normalize_ticker(target)
+        return normalized
 
     @field_validator("broker")
     @classmethod
@@ -99,7 +110,7 @@ class Config(StrictModel):
         return brokers
 
     @model_validator(mode="after")
-    def validate_percentages(self) -> Self:
+    def validate_portfolio(self) -> Self:
         satellite_total = sum(self.satellite.values())
         if satellite_total > PERCENT_MAX:
             raise ValueError(f"satellite total cannot exceed 100%, got {satellite_total}%")
@@ -110,6 +121,24 @@ class Config(StrictModel):
         if overlap:
             symbols = ", ".join(sorted(overlap))
             raise ValueError(f"satellite and core tickers must be distinct: {symbols}")
+        allocation_tickers = self.satellite.keys() | self.core.keys()
+        invalid_targets = set(self.substitutions.values()) - allocation_tickers
+        if invalid_targets:
+            symbols = ", ".join(sorted(invalid_targets))
+            raise ValueError(f"substitution targets must be configured allocation tickers: {symbols}")
+        conflicting_sources = self.substitutions.keys() & allocation_tickers
+        if conflicting_sources:
+            symbols = ", ".join(sorted(conflicting_sources))
+            raise ValueError(f"substitution sources cannot also be allocation targets: {symbols}")
+        leverage_accounts = [
+            f"{broker_name}.{account_name}"
+            for broker_name, accounts in self.broker.items()
+            for account_name, account in accounts.items()
+            if account.leverage_rate > 0
+        ]
+        if len(leverage_accounts) > 1:
+            accounts = ", ".join(leverage_accounts)
+            raise ValueError(f"leverage_rate can be set on at most one account: {accounts}")
         return self
 
 

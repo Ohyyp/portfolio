@@ -102,7 +102,9 @@ def fetch_ticker_quote(ticker: str) -> tuple[MarketQuote, str | None]:
     warning = None
     try:
         raw_quote_type = fast_info.get("quoteType")
-        quote_type = raw_quote_type.strip().upper() if isinstance(raw_quote_type, str) and raw_quote_type.strip() else None
+        quote_type = (
+            raw_quote_type.strip().upper() if isinstance(raw_quote_type, str) and raw_quote_type.strip() else None
+        )
     except Exception as error:
         quote_type = None
         warning = f"{ticker} quote type request failed: {error}; treating as stock."
@@ -137,7 +139,7 @@ def fetch_ticker_quote(ticker: str) -> tuple[MarketQuote, str | None]:
 def fetch_ticker_result(ticker: str) -> tuple[MarketQuote | None, str | None]:
     try:
         return fetch_ticker_quote(ticker)
-    except Exception as error:
+    except MarketDataError as error:
         return None, str(error)
 
 
@@ -151,7 +153,7 @@ def fetch_market_data(tickers: set[str], max_workers: int = MAX_FETCH_WORKERS) -
     print(f"Fetching market data for: {', '.join(symbols)}...", file=sys.stderr)
     results: dict[str, MarketQuote] = {}
     errors: list[str] = []
-    worker_count = min(max_workers, len(symbols))
+    worker_count = min(max_workers, MAX_FETCH_WORKERS, len(symbols))
 
     with ThreadPoolExecutor(max_workers=worker_count) as executor:
         outcomes = executor.map(fetch_ticker_result, symbols)

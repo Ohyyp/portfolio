@@ -125,3 +125,31 @@ def test_fetch_market_data_rejects_invalid_prices(monkeypatch, price) -> None:
 
     with pytest.raises(MarketDataError, match="Unable to fetch required market prices"):
         fetch_market_data({"TEST"})
+
+
+def test_fetch_market_data_does_not_hide_unexpected_errors(monkeypatch) -> None:
+    def fail(ticker: str):
+        raise RuntimeError("programming error")
+
+    monkeypatch.setattr(market_data, "fetch_ticker_quote", fail)
+
+    with pytest.raises(RuntimeError, match="programming error"):
+        fetch_market_data({"TEST"})
+
+
+def test_fetch_market_data_caps_explicit_worker_requests_at_eight(monkeypatch) -> None:
+    executor_type = market_data.ThreadPoolExecutor
+    worker_counts = []
+
+    def create_executor(*, max_workers):
+        worker_counts.append(max_workers)
+        return executor_type(max_workers=max_workers)
+
+    monkeypatch.setattr(market_data, "ThreadPoolExecutor", create_executor)
+    monkeypatch.setattr(market_data, "fetch_ticker_result", lambda ticker: (quote("100"), None))
+    tickers = {f"TEST{index}" for index in range(12)}
+
+    quotes = fetch_market_data(tickers, max_workers=32)
+
+    assert worker_counts == [8]
+    assert set(quotes) == tickers

@@ -5,6 +5,7 @@
 .ruff_cache/
 .venv/
 __pycache__/
+allocation.md
 build/
 config.toml
 dist/

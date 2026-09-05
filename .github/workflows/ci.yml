@@ -37,3 +37,6 @@ jobs:
 
       - name: Test
         run: uv run pytest
+
+      - name: Compile
+        run: uv run python -m compileall -q src tests
