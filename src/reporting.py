@@ -235,13 +235,18 @@ def print_shareable_report(
         f"**Gross exposure:** {format_percentage(gross_exposure)}",
         f"**Cash:** {format_percentage(cash_percentage)}",
     ]
-    leveraged_account = next((state for state in account_states if state.leverage_rate > 0), None)
+    leveraged_account = next((state for state in account_states if state.leverage_limit > ZERO), None)
     if leveraged_account is not None:
         portfolio_base_money = sum((state.base_money for state in account_states), ZERO)
-        actual_rate = percentage(borrowed_amount(leveraged_account), portfolio_base_money)
-        summary.append(
-            f"**Leverage:** {leveraged_account.leverage_rate}% budget / {format_percentage(actual_rate)} used"
+        budget_rate = percentage(leveraged_account.leverage_limit, portfolio_base_money)
+        budget_label = (
+            f"{leveraged_account.leverage_rate}%"
+            if leveraged_account.leverage_rate > 0
+            else format_percentage(budget_rate)
         )
+        actual_rate = percentage(borrowed_amount(leveraged_account), portfolio_base_money)
+        mode = "minimum" if leveraged_account.leverage_mode == "min" else "maximum"
+        summary.append(f"**Leverage:** {budget_label} {mode} / {format_percentage(actual_rate)} used")
     print(" · ".join(summary))
     print_shareable_section("ETFs", etfs, percentage_by_ticker, market_data, substitutions)
     print_shareable_section("Equities", equities, percentage_by_ticker, market_data, substitutions)
@@ -285,13 +290,20 @@ def print_report(
         account = format_identifier(state.name)
         print(f"\n## {broker} · {account}\n")
         summary = [f"**Equity:** {format_money(account_total)}", f"**Cash:** {format_money(state.free_cash)}"]
-        if state.leverage_rate > 0:
+        if state.leverage_limit > ZERO:
+            budget = (
+                f"{state.leverage_rate}% ({format_money(state.leverage_limit)})"
+                if state.leverage_rate > 0
+                else format_money(state.leverage_limit)
+            )
             summary.extend(
                 (
-                    f"**Leverage budget:** {state.leverage_rate}% ({format_money(state.leverage_limit)})",
+                    f"**Leverage {'minimum' if state.leverage_mode == 'min' else 'maximum'}:** {budget}",
                     f"**Borrowed:** {format_money(borrowed_amount(state))}",
                 )
             )
+        if state.blocked_assets:
+            summary.append(f"**Blocked purchases:** {', '.join(sorted(state.blocked_assets))}")
         print(" · ".join(summary))
 
         etfs, equities = partition_holdings(state.holdings, market_data)

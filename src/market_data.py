@@ -65,11 +65,17 @@ def fetch_name(instrument: yf.Ticker) -> str | None:
 def fetch_etf_details(instrument: yf.Ticker, ticker: str) -> tuple[Decimal | None, str | None]:
     try:
         fund_data = instrument.funds_data
+    except Exception:
+        return None, None
+    try:
         category = parse_text(fund_data.fund_overview.get("categoryName"))
+    except Exception:
+        category = None
+    try:
         operations = fund_data.fund_operations
         expense_ratio = parse_optional_decimal(operations.at["Annual Report Expense Ratio", ticker])
     except Exception:
-        return None, None
+        expense_ratio = None
     if expense_ratio is not None and expense_ratio < ZERO:
         expense_ratio = None
     return expense_ratio, category

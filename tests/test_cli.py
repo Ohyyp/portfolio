@@ -3,6 +3,8 @@
 
 from decimal import Decimal
 
+import pytest
+
 import portfolio_allocator
 from configuration import Config
 from market_data import MarketQuote
@@ -143,7 +145,7 @@ def test_run_calculates_account_leverage_from_total_portfolio_equity(monkeypatch
 
     report = capsys.readouterr().out
     assert "| STOCK | STOCK | $10.00 | 11 |" in report
-    assert "**Leverage budget:** 10% ($100.00)" in report
+    assert "**Leverage maximum:** 10% ($100.00)" in report
     assert "**Borrowed:** $10.00" in report
     assert "**Cash:** -$10.00" in report
     assert "**Equity:** $1,000.00" in report
@@ -226,3 +228,69 @@ def test_run_treats_substitution_sources_as_configured_etfs(monkeypatch, capsys)
     assert "configured ETF assets as ETFs: OLD" in captured.err
     assert "### ETFs" in captured.out
     assert "### Equities" not in captured.out
+
+
+@pytest.mark.parametrize("leverage", [{"leverage_amount": 20}, {"leverage_rate": 20}])
+def test_minimum_mode_runs_end_to_end_and_shareable_hides_amounts(monkeypatch, capsys, leverage) -> None:
+    config = Config(
+        core={"CORE": 100},
+        satellite={"UNUSED": 0},
+        broker={
+            "private_broker": {
+                "private_account": {
+                    "money": 100,
+                    "leverage_mode": "min",
+                    **leverage,
+                }
+            }
+        },
+    )
+    market = {"CORE": quote("70", "ETF")}
+    monkeypatch.setattr(portfolio_allocator, "fetch_market_data", lambda tickers: market)
+    portfolio_allocator.run(config)
+    full = capsys.readouterr().out
+    assert "**Leverage minimum:**" in full
+    assert "**Borrowed:** $40.00" in full
+    assert "| CORE | CORE | $70.00 | 2 | $140.00 |" in full
+    portfolio_allocator.run(config, shareable=True)
+    shareable = capsys.readouterr().out
+    assert "minimum / 40.00% used" in shareable
+    for private in ("Private Broker", "Private Account", "$20.00", "$40.00", "| Shares |", "| Value |"):
+        assert private not in shareable
+
+
+def test_infeasible_minimum_returns_domain_failure_without_markdown(monkeypatch, capsys) -> None:
+    config = Config(
+        core={"CORE": 100},
+        satellite={"UNUSED": 0},
+        broker={
+            "broker": {
+                "account": {
+                    "money": 100,
+                    "leverage_amount": 20,
+                    "leverage_mode": "min",
+                    "blocked_assets": ["CORE"],
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(portfolio_allocator, "load_config", lambda path: config)
+    monkeypatch.setattr(portfolio_allocator, "fetch_market_data", lambda tickers: {"CORE": quote("10", "ETF")})
+    assert portfolio_allocator.main(["unused.toml"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Cannot satisfy minimum borrowing" in captured.err
+
+
+def test_borrowing_cannot_create_portfolio_equity(monkeypatch, capsys) -> None:
+    config = Config(
+        core={"CORE": 100},
+        satellite={"UNUSED": 0},
+        broker={"broker": {"account": {"money": 0, "leverage_amount": 20, "leverage_mode": "min"}}},
+    )
+    monkeypatch.setattr(portfolio_allocator, "load_config", lambda path: config)
+    monkeypatch.setattr(portfolio_allocator, "fetch_market_data", lambda tickers: {"CORE": quote("10", "ETF")})
+    assert portfolio_allocator.main(["unused.toml"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "base equity must be greater than zero" in captured.err

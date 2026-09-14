@@ -159,10 +159,38 @@ def test_report_explains_portfolio_based_leverage(capsys) -> None:
     print_report(accounts, market)
 
     report = capsys.readouterr().out
-    assert "**Leverage budget:** 1% ($10.00)" in report
+    assert "**Leverage maximum:** 1% ($10.00)" in report
     assert "**Borrowed:** $5.00" in report
     assert "**Cash:** -$5.00" in report
     assert "**Equity:** $1,000.00 · **Gross exposure:** 10.50% · **Cash:** $895.00" in report
+
+
+def test_reports_show_fixed_leverage_without_exposing_its_amount_when_shareable(capsys) -> None:
+    market = {"FUND": quote("5", "ETF")}
+    account = AccountState(
+        "private_account",
+        "private_broker",
+        AccountConfig(
+            money=1000,
+            fixed_assets={"FUND": 200},
+            leverage_amount=100,
+            blocked_assets=["fund"],
+        ),
+        market,
+    )
+    apply_portfolio_leverage([account])
+
+    print_report([account], market)
+    full_report = capsys.readouterr().out
+    print_report([account], market, shareable=True)
+    shareable_report = capsys.readouterr().out
+
+    assert "**Leverage maximum:** $100.00" in full_report
+    assert "**Blocked purchases:** FUND" in full_report
+    assert "**Leverage:** 10.00% maximum / 0.00% used" in shareable_report
+    assert "$100.00" not in shareable_report
+    assert "Blocked purchases" not in shareable_report
+    assert "FUND" in shareable_report
 
 
 def test_shareable_report_keeps_public_metadata_and_omits_private_positions(capsys) -> None:
@@ -275,8 +303,8 @@ def test_shareable_report_supports_negative_cash_and_hides_borrowing_amount(caps
     print_report([account], market, shareable=True)
 
     report = capsys.readouterr().out
-    assert "**Gross exposure:** 105.00% · **Cash:** -5.00% · **Leverage:** 10% budget / 5.00% used" in report
-    assert "**Leverage budget:**" not in report
+    assert "**Gross exposure:** 105.00% · **Cash:** -5.00% · **Leverage:** 10% maximum / 5.00% used" in report
+    assert "**Leverage maximum:**" not in report
     assert "**Borrowed:**" not in report
     assert "private_account" not in report
     assert "private_broker" not in report

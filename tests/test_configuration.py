@@ -17,6 +17,7 @@ def test_config_normalizes_tickers_and_collects_required_symbols() -> None:
                 "test_account": AccountConfig(
                     money=Decimal("1000"),
                     fixed_assets={" held ": Decimal("2"), "zero_held": Decimal("0")},
+                    blocked_assets=[" target ", "vug"],
                 )
             }
         },
@@ -35,6 +36,7 @@ def test_config_normalizes_tickers_and_collects_required_symbols() -> None:
     assert list(config.core) == ["CORE", "ZERO_CORE"]
     assert list(config.satellite) == ["TARGET", "ZERO_TARGET"]
     assert config.substitutions == {"OLD_CORE": "CORE"}
+    assert config.broker["test_broker"]["test_account"].blocked_assets == ["TARGET", "VUG"]
     assert get_all_tickers(config) == {"TARGET", "HELD", "CORE"}
 
 
@@ -96,6 +98,7 @@ def test_config_requires_integer_leverage_percent_below_100(leverage_rate) -> No
     [
         {"money": Decimal("Infinity")},
         {"fixed_assets": {"ASSET": Decimal("Infinity")}},
+        {"leverage_amount": Decimal("Infinity")},
     ],
 )
 def test_account_money_and_shares_must_be_finite(data) -> None:
@@ -115,3 +118,38 @@ def test_config_allows_leverage_in_only_one_account() -> None:
             },
             satellite={"TARGET": 50},
         )
+
+
+def test_account_requires_one_leverage_unit_and_unique_blocked_assets() -> None:
+    with pytest.raises(ValidationError, match="mutually exclusive"):
+        AccountConfig(money=100, leverage_rate=1, leverage_amount=500)
+
+    with pytest.raises(ValidationError, match="duplicate tickers"):
+        AccountConfig(money=100, blocked_assets=["vug", " VUG "])
+
+
+def test_config_counts_fixed_amount_as_the_one_leveraged_account() -> None:
+    with pytest.raises(ValidationError, match="at most one account"):
+        Config(
+            core={"CORE": 100},
+            broker={
+                "test_broker": {
+                    "first": {"money": 100, "leverage_amount": 500},
+                    "second": {"money": 100, "leverage_rate": 2},
+                }
+            },
+            satellite={"TARGET": 50},
+        )
+
+
+@pytest.mark.parametrize("data", [{"leverage_mode": "minimum"}, {"leverage_mode": "min"}])
+def test_config_rejects_invalid_or_unfunded_leverage_mode(data) -> None:
+    with pytest.raises(ValidationError):
+        AccountConfig.model_validate(data)
+
+
+def test_leverage_modes_support_both_units_and_default_to_max() -> None:
+    assert AccountConfig(leverage_amount=10).leverage_mode == "max"
+    assert AccountConfig(leverage_amount=10, leverage_mode="min").leverage_amount == 10
+    assert AccountConfig(leverage_rate=10, leverage_mode="min").leverage_rate == 10
+    assert AccountConfig(leverage_amount=0, leverage_mode="min").leverage_amount == 0

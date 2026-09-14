@@ -3,6 +3,8 @@
 
 from decimal import Decimal
 
+import pytest
+
 from allocation import (
     AccountState,
     allocate_core,
@@ -10,8 +12,9 @@ from allocation import (
     calculate_core_targets,
     determine_buy_shares,
     distribute_shares,
+    enforce_minimum_leverage,
 )
-from configuration import AccountConfig
+from configuration import AccountConfig, Config, ConfigError
 from market_data import MarketQuote
 
 
@@ -90,6 +93,26 @@ def test_distribution_treats_a_substitute_holder_as_an_existing_holder() -> None
 
     assert accounts[0].holdings == {}
     assert accounts[1].holdings == {"OLD": Decimal("1"), "NEW": Decimal("1")}
+
+
+def test_distribution_does_not_add_a_blocked_asset_to_an_existing_position() -> None:
+    market = {"TARGET": quote("100", "ETF")}
+    accounts = [
+        AccountState(
+            "blocked_holder",
+            "broker",
+            AccountConfig(money=500, fixed_assets={"TARGET": 1}, blocked_assets=["target"]),
+            market,
+        ),
+        AccountState("eligible", "broker", AccountConfig(money=200), market),
+    ]
+
+    distribute_shares({"TARGET": 2}, accounts, market)
+
+    assert accounts[0].holdings == {"TARGET": Decimal("1")}
+    assert accounts[0].free_cash == Decimal("400.00000")
+    assert accounts[1].holdings == {"TARGET": Decimal("2")}
+    assert accounts[1].free_cash == Decimal("0")
 
 
 def test_distribution_uses_toml_order_to_break_ties() -> None:
@@ -361,6 +384,24 @@ def test_leverage_rate_uses_total_portfolio_equity_and_stays_in_its_account() ->
     assert accounts[1].free_cash == Decimal("0.0")
 
 
+def test_leverage_amount_sets_a_fixed_budget_in_its_account() -> None:
+    accounts = [
+        AccountState(
+            "leveraged",
+            "broker",
+            AccountConfig(money=100, leverage_amount=Decimal("500.25")),
+            {},
+        ),
+        AccountState("other", "broker", AccountConfig(money=900), {}),
+    ]
+
+    apply_portfolio_leverage(accounts)
+
+    assert accounts[0].leverage_limit == Decimal("500.25")
+    assert accounts[0].free_cash == Decimal("100")
+    assert accounts[1].leverage_limit == Decimal("0")
+
+
 def test_leverage_is_buying_power_and_purchases_create_negative_cash() -> None:
     market = {
         "FIXED": quote("100"),
@@ -392,3 +433,203 @@ def test_fixed_holdings_above_configured_money_use_current_value(capsys) -> None
     assert account.base_money == Decimal("200.00000")
     assert account.free_cash == Decimal("0.00000")
     assert "fixed holdings exceed configured money" in capsys.readouterr().err
+
+
+def test_minimum_reassigns_only_new_shares_and_preserves_portfolio_cash() -> None:
+    market = {"CORE": quote("30", "ETF")}
+    config = Config(
+        core={"CORE": 100},
+        satellite={"UNUSED": 0},
+        broker={
+            "broker": {
+                "donor": {"money": 200, "fixed_assets": {"CORE": Decimal("1.25")}},
+                "borrower": {"money": 0, "leverage_amount": 50, "leverage_mode": "min"},
+            }
+        },
+    )
+    accounts = [AccountState(name, "broker", account, market) for name, account in config.broker["broker"].items()]
+    apply_portfolio_leverage(accounts)
+    targets = allocate_core(accounts, config.core, market)
+    before_shares = sum(state.holdings.get("CORE", 0) for state in accounts)
+    before_cash = sum(state.free_cash for state in accounts)
+
+    enforce_minimum_leverage(accounts, config, market, targets)
+
+    assert accounts[0].holdings["CORE"] >= Decimal("1.25")
+    assert accounts[1].holdings["CORE"] == 2
+    assert accounts[1].free_cash == -60
+    assert sum(state.holdings.get("CORE", 0) for state in accounts) == before_shares
+    assert sum(state.free_cash for state in accounts) == before_cash
+
+
+@pytest.mark.parametrize("mode, expected_debt", [("max", 0), ("min", 30)])
+def test_minimum_tops_up_whole_shares_but_max_does_not(mode, expected_debt) -> None:
+    market = {"CORE": quote("30", "ETF")}
+    config = Config(
+        core={"CORE": 100},
+        satellite={"UNUSED": 0},
+        broker={
+            "broker": {
+                "account": {
+                    "fixed_assets": {"CORE": Decimal("1.25")},
+                    "leverage_amount": 20,
+                    "leverage_mode": mode,
+                }
+            }
+        },
+    )
+    account = AccountState("account", "broker", config.broker["broker"]["account"], market)
+    apply_portfolio_leverage([account])
+    targets = allocate_core([account], config.core, market)
+    enforce_minimum_leverage([account], config, market, targets)
+    assert -account.free_cash == expected_debt
+    assert account.holdings["CORE"] == Decimal("1.25") + Decimal(expected_debt) / 30
+
+
+def test_minimum_respects_blocks_substitutions_and_zero_weights() -> None:
+    market = {ticker: quote("10", "ETF") for ticker in ("BLOCKED", "NEW", "OLD", "OTHER", "ZERO")}
+    config = Config(
+        core={"NEW": 50, "OTHER": 50, "ZERO": 0},
+        satellite={"BLOCKED": 10},
+        substitutions={"OLD": "NEW"},
+        broker={
+            "broker": {
+                "account": {
+                    "fixed_assets": {"OLD": 10, "BLOCKED": Decimal("1.25")},
+                    "leverage_amount": 5,
+                    "leverage_mode": "min",
+                    "blocked_assets": ["BLOCKED"],
+                }
+            }
+        },
+    )
+    account = AccountState("account", "broker", config.broker["broker"]["account"], market)
+    apply_portfolio_leverage([account])
+    targets = {"BLOCKED": Decimal(50), "NEW": Decimal(100), "OTHER": Decimal(5), "ZERO": Decimal(0)}
+    enforce_minimum_leverage([account], config, market, targets)
+    assert account.holdings == {"OLD": Decimal(10), "BLOCKED": Decimal("1.25"), "OTHER": Decimal(1)}
+    assert account.free_cash == -10
+
+
+def test_minimum_fails_when_every_positive_weight_asset_is_blocked() -> None:
+    config = Config(
+        core={"CORE": 100},
+        satellite={"UNUSED": 0},
+        broker={
+            "broker": {
+                "account": {
+                    "money": 100,
+                    "leverage_amount": 20,
+                    "leverage_mode": "min",
+                    "blocked_assets": ["CORE"],
+                }
+            }
+        },
+    )
+    market = {"CORE": quote("10", "ETF")}
+    account = AccountState("account", "broker", config.broker["broker"]["account"], market)
+    apply_portfolio_leverage([account])
+    with pytest.raises(ConfigError, match="blocks all positive-weight assets"):
+        enforce_minimum_leverage([account], config, market, {"CORE": Decimal(120)})
+
+
+def test_minimum_reassignment_skips_blocked_purchases_and_preserves_asset_order() -> None:
+    market = {"BLOCKED": quote("1"), "EXPENSIVE": quote("30"), "CHEAP": quote("10")}
+    config = Config(
+        core={"EXPENSIVE": 50, "CHEAP": 50},
+        satellite={"BLOCKED": 50},
+        broker={
+            "broker": {
+                "donor": {"money": 100},
+                "borrower": {"money": 0, "leverage_amount": 5, "leverage_mode": "min", "blocked_assets": ["BLOCKED"]},
+            }
+        },
+    )
+    accounts = [AccountState(name, "broker", account, market) for name, account in config.broker["broker"].items()]
+    apply_portfolio_leverage(accounts)
+    distribute_shares({"BLOCKED": 5, "EXPENSIVE": 1, "CHEAP": 1}, accounts, market)
+    enforce_minimum_leverage(accounts, config, market, {})
+    assert accounts[1].holdings == {"EXPENSIVE": Decimal(1)}
+    assert accounts[1].free_cash == -30
+    assert accounts[0].holdings["BLOCKED"] == 5
+    assert accounts[0].holdings["CHEAP"] == 1
+
+
+def test_minimum_top_up_breaks_score_ties_by_overshoot_then_declaration_order() -> None:
+    market = {"EXPENSIVE": quote("20"), "FIRST": quote("10"), "SECOND": quote("10")}
+    config = Config(
+        core={"EXPENSIVE": 50, "FIRST": 25, "SECOND": 25},
+        satellite={"UNUSED": 0},
+        broker={"broker": {"account": {"money": 0, "leverage_amount": 5, "leverage_mode": "min"}}},
+    )
+    account = AccountState("account", "broker", config.broker["broker"]["account"], market)
+    apply_portfolio_leverage([account])
+    targets = {"EXPENSIVE": Decimal(10), "FIRST": Decimal(5), "SECOND": Decimal(5)}
+    enforce_minimum_leverage([account], config, market, targets)
+    assert account.holdings == {"FIRST": Decimal(1)}
+    assert account.free_cash == -10
+    enforce_minimum_leverage([account], config, market, targets)
+    assert account.holdings == {"FIRST": Decimal(1)}
+
+
+def test_minimum_closes_the_borrower_at_the_boundary_without_a_second_shared_asset() -> None:
+    market = {"FIRST": quote("70", "ETF"), "LATER": quote("10", "ETF")}
+    accounts = [
+        AccountState("borrower", "broker", AccountConfig(money=100, leverage_amount=20, leverage_mode="min"), market),
+        AccountState("other", "broker", AccountConfig(money=200), market),
+    ]
+    apply_portfolio_leverage(accounts)
+
+    distribute_shares({"FIRST": 3, "LATER": 5}, accounts, market)
+
+    assert accounts[0].holdings == {"FIRST": Decimal(2)}
+    assert accounts[0].free_cash == -40
+    assert accounts[1].holdings == {"FIRST": Decimal(1), "LATER": Decimal(5)}
+    assert accounts[1].free_cash == 80
+
+
+def test_minimum_respects_blocks_and_does_not_reopen_a_closed_existing_holder() -> None:
+    market = {ticker: quote("70", "ETF") for ticker in ("BLOCKED", "BOUNDARY", "HELD")}
+    accounts = [
+        AccountState(
+            "borrower",
+            "broker",
+            AccountConfig(
+                money=170,
+                fixed_assets={"HELD": 1},
+                leverage_amount=20,
+                leverage_mode="min",
+                blocked_assets=["BLOCKED"],
+            ),
+            market,
+        ),
+        AccountState("other", "broker", AccountConfig(money=500), market),
+    ]
+    apply_portfolio_leverage(accounts)
+    distribute_shares({"BLOCKED": 1, "BOUNDARY": 3, "HELD": 1}, accounts, market)
+    assert accounts[0].holdings == {"HELD": Decimal(1), "BOUNDARY": Decimal(2)}
+    assert accounts[0].free_cash == -40
+    assert accounts[1].holdings == {"BLOCKED": Decimal(1), "BOUNDARY": Decimal(1), "HELD": Decimal(1)}
+
+
+def test_satellite_minimum_overshoot_does_not_reduce_other_accounts_core_buying_power() -> None:
+    market = {"SAT": quote("70"), "CORE": quote("10", "ETF")}
+    accounts = [
+        AccountState("borrower", "broker", AccountConfig(money=100, leverage_amount=20, leverage_mode="min"), market),
+        AccountState("other", "broker", AccountConfig(money=200), market),
+    ]
+    apply_portfolio_leverage(accounts)
+    distribute_shares({"SAT": 2}, accounts, market)
+    allocate_core(accounts, {"CORE": 100}, market)
+    assert accounts[0].holdings == {"SAT": Decimal(2)}
+    assert accounts[0].free_cash == -40
+    assert accounts[1].holdings == {"CORE": Decimal(20)}
+    assert accounts[1].free_cash == 0
+
+
+def test_combined_rounding_remainders_stay_cash_even_when_another_share_is_affordable() -> None:
+    market = {"FIRST": quote("180", "ETF"), "LAST": quote("70", "ETF")}
+    account = AccountState("account", "broker", AccountConfig(money=1000), market)
+    allocate_core([account], {"FIRST": 50, "LAST": 50}, market)
+    assert account.holdings == {"FIRST": Decimal(2), "LAST": Decimal(7)}
+    assert account.free_cash == Decimal(150)

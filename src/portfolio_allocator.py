@@ -16,6 +16,7 @@ from allocation import (
     compute_target_holding_values,
     determine_buy_shares,
     distribute_shares,
+    enforce_minimum_leverage,
 )
 from configuration import ZERO, Config, ConfigError, get_all_tickers, load_config
 from market_data import MarketDataError, fetch_market_data
@@ -41,15 +42,16 @@ def run(config: Config, *, shareable: bool = False) -> None:
     ]
     apply_portfolio_leverage(account_states)
     total_money = sum((state.base_money + state.leverage_limit for state in account_states), ZERO)
-    if total_money <= ZERO:
-        raise ConfigError("Total portfolio money must be greater than zero")
+    if sum((state.base_money for state in account_states), ZERO) <= ZERO:
+        raise ConfigError("Total portfolio base equity must be greater than zero")
 
     targets = calculate_satellite_targets(config, total_money)
     holding_values = compute_holding_values(account_states, market_data)
     target_holding_values = compute_target_holding_values(config.satellite, holding_values, config.substitutions)
     purchases = determine_buy_shares(targets, target_holding_values, market_data)
     distribute_shares(purchases, account_states, market_data, config.substitutions)
-    allocate_core(account_states, config.core, market_data, config.substitutions)
+    targets.update(allocate_core(account_states, config.core, market_data, config.substitutions))
+    enforce_minimum_leverage(account_states, config, market_data, targets)
     print_report(account_states, market_data, substitutions=config.substitutions, shareable=shareable)
 
 

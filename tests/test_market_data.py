@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 
@@ -153,3 +154,23 @@ def test_fetch_market_data_caps_explicit_worker_requests_at_eight(monkeypatch) -
 
     assert worker_counts == [8]
     assert set(quotes) == tickers
+
+
+@pytest.mark.parametrize("failed_field", ["category", "expense_ratio"])
+def test_optional_etf_fields_fail_independently(failed_field) -> None:
+    class FundData:
+        @property
+        def fund_overview(self):
+            if failed_field == "category":
+                raise RuntimeError("category unavailable")
+            return {"categoryName": "Large Growth"}
+
+        @property
+        def fund_operations(self):
+            if failed_field == "expense_ratio":
+                raise RuntimeError("expense ratio unavailable")
+            return SimpleNamespace(at={("Annual Report Expense Ratio", "FUND"): Decimal("0.001")})
+
+    expense_ratio, category = market_data.fetch_etf_details(SimpleNamespace(funds_data=FundData()), "FUND")
+    assert expense_ratio == (None if failed_field == "expense_ratio" else Decimal("0.001"))
+    assert category == (None if failed_field == "category" else "Large Growth")

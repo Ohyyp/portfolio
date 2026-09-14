@@ -6,7 +6,7 @@ import tomllib
 from collections.abc import Mapping
 from decimal import Decimal
 from pathlib import Path
-from typing import Annotated, Self
+from typing import Annotated, Literal, Self
 
 from pydantic import (
     BaseModel,
@@ -55,12 +55,31 @@ class StrictModel(BaseModel):
 class AccountConfig(StrictModel):
     money: NonNegativeDecimal | None = None
     fixed_assets: dict[str, NonNegativeDecimal] = Field(default_factory=dict)
-    leverage_rate: LeveragePercentage = 0
+    leverage_rate: LeveragePercentage | None = None
+    leverage_amount: NonNegativeDecimal | None = None
+    leverage_mode: Literal["max", "min"] = "max"
+    blocked_assets: list[str] = Field(default_factory=list)
 
     @field_validator("fixed_assets")
     @classmethod
     def normalize_fixed_assets(cls, assets: dict[str, NonNegativeDecimal]) -> dict[str, NonNegativeDecimal]:
         return normalize_ticker_mapping(assets)
+
+    @field_validator("blocked_assets")
+    @classmethod
+    def normalize_blocked_assets(cls, assets: list[str]) -> list[str]:
+        normalized = [normalize_ticker(ticker) for ticker in assets]
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("blocked_assets contains duplicate tickers after normalization")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_leverage(self) -> Self:
+        if self.leverage_rate is not None and self.leverage_amount is not None:
+            raise ValueError("leverage_rate and leverage_amount are mutually exclusive")
+        if self.leverage_mode == "min" and self.leverage_rate is None and self.leverage_amount is None:
+            raise ValueError("leverage_mode=min requires leverage_rate or leverage_amount")
+        return self
 
 
 class Config(StrictModel):
@@ -130,15 +149,15 @@ class Config(StrictModel):
         if conflicting_sources:
             symbols = ", ".join(sorted(conflicting_sources))
             raise ValueError(f"substitution sources cannot also be allocation targets: {symbols}")
-        leverage_accounts = [
+        leveraged_accounts = [
             f"{broker_name}.{account_name}"
             for broker_name, accounts in self.broker.items()
             for account_name, account in accounts.items()
-            if account.leverage_rate > 0
+            if (account.leverage_rate or 0) > 0 or (account.leverage_amount or ZERO) > ZERO
         ]
-        if len(leverage_accounts) > 1:
-            accounts = ", ".join(leverage_accounts)
-            raise ValueError(f"leverage_rate can be set on at most one account: {accounts}")
+        if len(leveraged_accounts) > 1:
+            accounts = ", ".join(leveraged_accounts)
+            raise ValueError(f"leverage can be configured on at most one account: {accounts}")
         return self
 
 
